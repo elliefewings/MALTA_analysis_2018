@@ -1,0 +1,140 @@
+---
+title: "Look for genes with variants in multiple families"
+author: "EF"
+date: "02 Jan 2018"
+output: html_document
+---
+# start_section
+  
+```{r start_section}
+
+# Time stamp
+Sys.time()
+
+# Clean up
+rm(list=ls())
+graphics.off()
+
+# Load libraries
+library(knitr)
+library(dplyr)
+library(stringr)
+
+# Set root working folder
+opts_knit$set(root.dir = getwd())
+
+```
+
+#Load image from s01
+```{r load image}
+
+load("R_data/s02_malta_combined_Jan18_20180102.Rdata")
+
+#Check dimensions
+dim(gt)
+dim(vv)
+
+sum(row.names(gt) != row.names(vv)) 
+
+#Convert factors back to numerics/characters
+vv$CHROM <- as.character(vv$CHROM)
+vv$POS <- as.numeric(as.character(vv$POS))
+vv$REF <- as.character(vv$REF)
+vv$ALT <- as.character(vv$ALT)
+
+#Set rownames as column
+vv$row <- row.names(vv)
+
+```
+
+#Load in house dataset
+```{r IH}
+#Load set
+ih <- read.table("/rds/project/erf33/rds-erf33-medgen/users/eleanor/2015-16/IHCAP/IH_Jan18_GM/IH_Jan18_GM_20180108.csv", header=TRUE, sep=",", stringsAsFactors = FALSE)
+
+#Select columns of interest
+short.ih <- subset(ih, select=c("CHROM", "POS", "REF", "ALT", "IH_AF", "IH_AC", "IH_AN", "IHCAP_AF", "IHCAP_AC", "IHCAP_AN"))
+
+#Merge on in_house dataset allele frequencies
+vv <- left_join(vv, short.ih, by=c("CHROM", "POS", "REF", "ALT"))
+
+#Clean up
+rm(ih, short.ih)
+```
+
+
+#Remove .gt from column names
+```{r rename}
+colnames(gt)<- str_replace_all(colnames(gt), pattern = ".GT", "")
+
+```
+
+#Family counts
+```{r cc counts}
+#Create count of variants per gene
+aggr <- vv %>% group_by(SYMBOL) %>% mutate(VperG = length(SYMBOL)) %>% as.data.frame()
+
+row.names(aggr) <- aggr$row
+
+#Check row names
+sum(row.names(gt) != row.names(aggr)) 
+
+#3 families in set so strict filters to select genes with 3 different variants
+#Filter out variants that were in more than 5 IH samples
+vv.three <- aggr[aggr$VperG == 3 & (aggr$IH_AC < 5 | is.na(aggr$IH_AC)),]
+
+rm(vv)
+
+```
+
+#Select genes with one variant in each family
+```{r select variants in affected}
+
+#Remove NAs for addition of rows
+gt[is.na(gt)] <- 0
+
+#Create familial counts
+
+gt$f1 <- gt$IHCAP_43_01
+
+gt$f2 <- gt$IHCAP8_01 + gt$IHCAP8_02
+
+gt$f3 <- gt$mac16442 + gt$mac7536 + gt$mac6500
+
+#Select vv variants in gt file and merge together
+gt.three <- gt[row.names(gt) %in% row.names(vv.three),]
+
+#Check rownames of gt and vep
+sum(row.names(gt.three) != row.names(vv.three))
+
+#merge vep and gt info for genes with 3 different variants
+three <- cbind(vv.three, gt.three)
+
+#Clean up
+rm(gt.three, vv.three)
+
+#Image to use in all later analysis
+save.image("R_data/s03_malta_combined_Jan18_20180103.Rdata")
+
+```
+
+#Create merged set of all data
+```{r all set}
+
+#Check row names
+sum(row.names(gt) != row.names(aggr))
+
+#Merge vep info with gts for all variants 
+all <- cbind(aggr, gt)
+
+```
+
+
+#Write csv's for all data and for short data
+```{r write csv}
+write.csv(all, "malta_combined_Jan18_filt_20180103.csv")
+
+write.csv(three, "malta_combined_Jan18_filt_3vars_20180103.csv")
+
+```
+

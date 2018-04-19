@@ -1,0 +1,156 @@
+---
+title: "Open malta set and filter genotypes"
+author: "EF"
+date: "02 Jan 2018"
+output: html_document
+---
+# start_section
+  
+```{r start_section}
+
+# Time stamp
+Sys.time()
+
+# Clean up
+rm(list=ls())
+graphics.off()
+
+# Load libraries
+library(knitr)
+library(dplyr)
+library(stringr)
+
+# Set root working folder
+opts_knit$set(root.dir = getwd())
+
+
+```
+
+#Load data
+```{r load}
+#Vep annotated sites file
+vv <- read.table("Source_data/malta_combined_Jan18_vqsr_std_sma_ann_VV.txt", sep = "\t", header = TRUE, row.names = 1, stringsAsFactors = FALSE)
+
+#Genotypes file
+gt <- read.table("Source_data/malta_combined_Jan18_vqsr_std_sma_ann_GT_add.txt", sep = "\t", header = TRUE, row.names = 1, stringsAsFactors = FALSE)
+
+#Genotype depths file
+dp <- read.table("Source_data/malta_combined_Jan18_vqsr_std_sma_ann_DP.txt", sep = "\t", header = TRUE, row.names = 1, stringsAsFactors = FALSE)
+
+#Genotype quality file
+gq <- read.table("Source_data/malta_combined_Jan18_vqsr_std_sma_ann_GQ.txt", sep = "\t", header = TRUE, row.names = 1, stringsAsFactors = FALSE)
+
+#ExAC allele frequencies file
+exac <- read.table("Source_data/malta_combined_Jan18_vqsr_std_sma_ann_exac.txt", sep = "\t", header = TRUE, row.names = 1, stringsAsFactors = FALSE)
+
+#1000 genomes frequencies file
+kgen <- read.table("Source_data/malta_combined_Jan18_vqsr_std_sma_ann_kgen.txt", sep = "\t", header = TRUE, row.names = 1, stringsAsFactors = FALSE)
+```
+
+#Convert to matrix
+```{r matrix}
+
+#Convert to matrix
+vv.mx <- as.matrix(vv)
+
+gt.mx <- as.matrix(gt)
+
+#number of variants in raw vcf txt file
+nrow(vv.mx)
+
+#Clean up
+rm(vv, gt)
+
+```
+
+
+#Filtering notes
+
+The filters are applied in the following order, filtering out:  
+gq < 20  
+dp > 500  
+call_rate < 0.5
+
+#Filter on gq
+```{r gq filter}
+
+#convert to matrix
+gq.mx <- as.matrix(gq)
+
+# num of genotypes to be removed
+sum(gq.mx < 20, na.rm=TRUE) #8564
+
+# Fraction of genotypes to be removed
+sum(gq.mx < 20, na.rm=TRUE)/sum(!is.na(gq.mx)) # ~4%
+
+# Apply filter (to gt only !), can only run on matrices
+NA -> gt.mx[ gq.mx < 20 ]
+
+#Clean up
+rm(gq, gq.mx)
+```
+
+#Filter on dp
+```{r dp filter}
+#convert to matrix
+dp.mx <- as.matrix(dp)
+
+# num of genotypes to be removed
+sum(dp.mx > 500, na.rm=TRUE) #3
+
+# Fraction of genotypes to be removed
+sum(dp.mx > 500, na.rm=TRUE)/sum(!is.na(dp.mx)) # ~0.0000013%
+
+# Apply filter (to gt only !), can only run on matrices
+NA -> gt.mx[ dp.mx > 500 ]
+
+#Clean up
+rm(dp, dp.mx)
+```
+
+#Filter on call rate
+```{r callrate filter}
+
+#Create callrates
+cr <- data.frame(RawVarID=row.names(gt.mx), callrate = NA)
+cr$callrate <- apply(gt.mx, 1, function(x) sum(!is.na(x))/ncol(gt.mx))  
+
+# num of genotypes to be removed
+sum(cr$callrate < 0.5) #656
+
+# Fraction of genotypes to be removed
+sum(cr$callrate < 0.5, na.rm=TRUE)/sum(nrow(cr)) # ~1%
+
+#Filter variants from cr
+
+cr.filt <- cr[cr$callrate >= 0.5,]
+
+# Remove variants from gt, vv, exac and kgen
+gt.filt <- gt.mx[row.names(gt.mx) %in% cr.filt$RawVarID,]
+
+vv.filt <- vv.mx[row.names(vv.mx) %in% cr.filt$RawVarID,]
+
+exac.filt <- exac[row.names(exac) %in% cr.filt$RawVarID,]
+
+kgen.filt <- kgen[row.names(kgen) %in% cr.filt$RawVarID,]
+
+#Clean up
+rm(cr, cr.filt, gt.mx, vv.mx, exac, kgen)
+```
+
+#Check indexes
+```{r check rownames}
+
+sum(row.names(gt.filt) != row.names(vv.filt)) 
+
+sum(row.names(gt.filt) != row.names(exac.filt))
+
+sum(row.names(gt.filt) != row.names(kgen.filt))
+
+```
+
+#Write data
+```{r}
+save.image("R_data/s01_malta_combined_Jan18_20180102.Rdata")
+```
+
