@@ -1,0 +1,154 @@
+---
+title: "Open mac tumour set and filter genotypes"
+author: "EF"
+date: "12 Jan 2018"
+output: html_document
+---
+# start_section
+  
+```{r start_section}
+
+# Time stamp
+Sys.time()
+
+# Clean up
+rm(list=ls())
+graphics.off()
+
+# Set root working folder
+library(knitr)
+library(dplyr)
+library(stringr)
+library(tidyr)
+
+opts_knit$set(root.dir = "/rds/project/erf33/rds-erf33-medgen/users/eleanor/2015-16/IHCAP/macT_Aug17/")
+setwd("/rds/project/erf33/rds-erf33-medgen/users/eleanor/2015-16/IHCAP/macT_Aug17/")
+
+```
+
+#Load data
+```{r load}
+
+vv <- read.table("Source_data/macT_Aug17_lod_std_sma_ann_VV.txt", sep = "\t", header = TRUE, row.names = 1, stringsAsFactors = FALSE)
+
+gt <- read.table("Source_data/macT_Aug17_lod_std_sma_ann_GT_add.txt", sep = "\t", header = TRUE, row.names = 1, stringsAsFactors = FALSE)
+
+lod <- read.table("Source_data/macT_Aug17_lod_std_sma_ann_LOD.txt", sep = "\t", header = TRUE, row.names = 1, stringsAsFactors = FALSE)
+
+ad <- read.table("Source_data/macT_Aug17_lod_std_sma_ann_AD.txt", sep = "\t", header = TRUE, row.names = 1, stringsAsFactors = FALSE)
+
+exac <- read.table("Source_data/macT_Aug17_lod_std_sma_ann_exac.txt", sep = "\t", header = TRUE, row.names = 1, stringsAsFactors = FALSE)
+
+kgen <- read.table("Source_data/macT_Aug17_lod_std_sma_ann_kgen.txt", sep = "\t", header = TRUE, row.names = 1, stringsAsFactors = FALSE)
+
+```
+
+
+#Check rownames
+```{r check rownames}
+
+sum(row.names(gt) != row.names(vv))
+sum(row.names(gt) != row.names(lod))
+sum(row.names(gt) != row.names(ad))
+sum(row.names(gt) != row.names(exac))
+sum(row.names(gt) != row.names(kgen))
+
+```
+
+#Add LODs
+```{r lods}
+vv$NLOD <- lod$NLOD
+
+vv$TLOD <- lod$TLOD
+
+rm(lod)
+```
+
+#Filter on ADs
+```{r ad}
+
+ad.split <- ad %>% separate(TUMOR.AD, c("tumour_ref", "tumour_alt"), ",") %>% separate(NORMAL.AD, c("normal_ref", "normal_alt"), ",")
+
+ad.split$normal_DP <- as.numeric(ad.split$normal_alt)+as.numeric(ad.split$normal_ref)
+ad.split$tumour_DP <- as.numeric(ad.split$tumour_alt)+as.numeric(ad.split$tumour_ref)
+
+ad.split$VAF <- as.numeric(ad.split$tumour_alt)/as.numeric(ad.split$tumour_ref)
+
+ad.short <- subset(ad.split, select=c("normal_DP", "tumour_DP", "VAF"))
+
+sum(row.names(vv) != row.names(ad.short))
+
+vv <- cbind(vv, ad.short)
+
+rm(ad, ad.short, ad.split)
+```
+
+
+#Add exac and kgen frequencies to vv file
+```{r exac kgen}
+
+#Add kgen AFs
+vv$kgen.AF <- kgen$kgen.AF
+vv$kgen.EUR_AF <- kgen$kgen.EUR_AF
+
+#Add exac AFs
+vv$exac_non_TCGA.AF <- exac$exac_non_TCGA.AF
+vv$exac_non_TCGA_EUR.AF <- exac$exac_non_TCGA.AC_NFE/exac$exac_non_TCGA.AN_NFE
+
+vv.pass <- vv[vv$VAF >= 0.1,]
+
+rm(exac, kgen, vv)
+```
+
+#Filter vv.pass on consequence
+```{r vv.pass filter consequence}
+
+#Number of variants before filtering on consequence
+nrow(vv.pass)
+
+#Filter on consequence
+high <- vv.pass[vv.pass$IMPACT == "HIGH",]
+miss <- vv.pass[vv.pass$IMPACT == "MODERATE",]
+del <- miss[(grepl("deleterious", miss$SIFT_call) & grepl("probably_damaging", miss$PolyPhen_call)) |
+              (is.na(miss$SIFT_call) & grepl("probably_damaging", miss$PolyPhen_call)) |
+              (grepl("deleterious", miss$SIFT_call) & is.na(miss$PolyPhen_call)) |
+              grepl("inframe", miss$Consequence),]
+high_del <- rbind(high, del)
+high_mod <- rbind(high, miss)
+
+#Number of variants after filtering on consequence
+nrow(high_del)
+nrow(high_mod)
+
+#reorder variants
+high_del <- high_del[order(row.names(high_del)),]
+high_mod <- high_mod[order(row.names(high_mod)),]
+
+#Clean up
+rm(vv.pass, miss, high, del)
+```
+
+#Add GT to vv
+```{r add gt}
+
+gt.del <- gt[rownames(gt) %in% rownames(high_del),]
+gt.mod <- gt[rownames(gt) %in% rownames(high_mod),]
+
+#check rownames
+sum(row.names(gt.del) != row.names(high_del))
+sum(row.names(gt.mod) != row.names(high_mod))
+
+del <- cbind(high_del, gt.del)
+mod <- cbind(high_mod, gt.mod)
+
+```
+
+
+#Write data
+```{r write}
+write.csv(del, "macT_Aug17_high_del_filtered_v2_20180112.csv")
+
+write.csv(mod, "macT_Aug17_high_mod_filtered_v2_20180112.csv")
+
+```
+
